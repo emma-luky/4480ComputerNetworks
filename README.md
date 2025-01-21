@@ -1,4 +1,4 @@
-# Course Information
+# CS4480 Computer Networks
 ## Description
 This course is a comprehensive introduction to the principles and practices of computer
 communication networks including the design and implementation of the Internet, its protocols and appli-
