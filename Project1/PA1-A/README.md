@@ -1,0 +1,1 @@
+The task is to build a web proxy capable of accepting HTTP requests, forwarding requests to remote (origin) servers, and returning response data to a client. You will only be responsible for implementing the GET method. All other request methods received by the proxy should elicit a “501 Not Implemented” error.
