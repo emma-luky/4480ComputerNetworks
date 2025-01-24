@@ -1,4 +1,5 @@
 # Place your imports here
+import re
 import signal
 from optparse import OptionParser
 import sys
@@ -8,27 +9,49 @@ from socket import *
 def ctrl_c_pressed(signal, frame):
 	sys.exit(0)
 
+http_methods = [
+    "GET",        
+    "POST",       
+    "PUT",        
+    "DELETE",     
+    "PATCH",
+    "HEAD",       
+    "OPTIONS",    
+    "CONNECT",    
+    "TRACE"       
+]
 
 # Parse the HTTP Request
-def parse_http_request(request: str):  
+def parse_http_request(request: bytes):  
     try:
-        # Split the request into lines
-        lines = request.split("\r\n")
+        request_str = request.decode('utf-8')
+
+        lines = request_str.split("\r\n")
         
-        # Parse the request line
         request_line = lines[0]
         method, url, http_version = request_line.split()
-        
+
+        if method.upper() not in http_methods:
+            return ValueError("400 Bad Request")
         if method.upper() != "GET":
             raise ValueError("501 Not Implemented")
         
+        url_pattern = r"^http://[a-zA-Z0-9.-]+(:[0-9]+)?/.*$"
+        if not re.match(url_pattern, url):
+            return ValueError("400 Bad Request")
+        
+        if http_version != "HTTP/1.0":
+            return ValueError("400 Bad Request")
+        
         # Parse headers
-        headers = []
+        header_pattern = r"^([^ ]+): (.*)$"
+        headers = {}
         for line in lines[1:]:
             if not line.strip():
                 break
-            if ": " in line:
-                headers.append(line)
+            match = re.match(header_pattern, line)
+            if match:
+                headers[match.group(1).encode()] = match.group(2).encode()
             else:
                 raise ValueError("400 Bad Request")
         
@@ -36,10 +59,10 @@ def parse_http_request(request: str):
             "method": method,
             "url": url,
             "http_version": http_version,
-            "headers": headers if headers else None
+            "headers": headers if headers else {}
         }
-    except ValueError:
-        raise ValueError("400 Bad Request")
+    except ValueError as e:
+        raise e
     
 
 # Parse the URL
@@ -93,7 +116,7 @@ while True:
     clientConn, clientAddr = proxySocket.accept()
     print(f"Connection received from {clientAddr}")
 
-    clientRequest = clientConn.recv(2048).decode()
+    clientRequest = clientConn.recv(2048)
 
     try:
         parsed_request = parse_http_request(clientRequest)
@@ -106,13 +129,15 @@ while True:
             Connection: close\r\n"
         if parsed_request["headers"]:
             for header in parsed_request["headers"]:
-                server_request += header + "\r\n"
+                if header != "Connection: keep-alive" or header != "Connection: close":
+                    server_request += header + "\r\n"
         server_request += "\r\n"
         print("server request: " + server_request)
         serverSocket.sendall(server_request.encode())
 
         server_response = serverSocket.recv(4096)
         print("Response from server received.")
+        serverSocket.close()
 
         clientConn.sendall(server_response)
 
@@ -121,4 +146,3 @@ while True:
         clientConn.sendall(b"HTTP/1.0 501 Not Implemented\r\n\r\n")
 
     clientConn.close()
-    serverSocket.close()
