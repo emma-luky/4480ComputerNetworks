@@ -118,7 +118,7 @@ while True:
 
     except Exception as e:
         print("Error:", e)
-        clientConn.sendall(b"HTTP/1.0 500 Internal Server Error\r\n\r\n")
+        clientConn.sendall(b"HTTP/1.0 501 Not Implemented\r\n\r\n")
 
     clientConn.close()
     serverSocket.close()
