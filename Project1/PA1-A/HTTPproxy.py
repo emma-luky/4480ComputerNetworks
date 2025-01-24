@@ -8,35 +8,41 @@ from socket import *
 def ctrl_c_pressed(signal, frame):
 	sys.exit(0)
 
-# TODO: Put function definitions here
-def parse_http_request(request: str):
-    try:
-        method, url, http_version = request.split()
 
-        if method.upper() == "GET":
-            # # TODO: Parse headers
-            # headers = {}
-            # for line in lines[1:]:
-            #     if not line.strip():  # Stop at the first empty line (end of headers)
-            #         break
-            #     if ": " in line:
-            #         header_name, header_value = line.split(": ", 1)
-            #         headers[header_name] = header_value
-            #     else:
-            #         raise ValueError("400 Bad Request: Malformed header.")
-            return {
-                "method": method,
-                "url": url,
-                "http_version": http_version,
-                # "headers": headers
-            }
-        else: 
-            raise ValueError("501 Not Implemented")    
+# Parse the HTTP Request
+def parse_http_request(request: str):  
+    try:
+        # Split the request into lines
+        lines = request.split("\r\n")
+        
+        # Parse the request line
+        request_line = lines[0]
+        method, url, http_version = request_line.split()
+        
+        if method.upper() != "GET":
+            raise ValueError("501 Not Implemented")
+        
+        # Parse headers
+        headers = []
+        for line in lines[1:]:
+            if not line.strip():
+                break
+            if ": " in line:
+                headers.append(line)
+            else:
+                raise ValueError("400 Bad Request")
+        
+        return {
+            "method": method,
+            "url": url,
+            "http_version": http_version,
+            "headers": headers if headers else None
+        }
     except ValueError:
         raise ValueError("400 Bad Request")
+    
 
-
-# Parse the URL into hostname, port, and path
+# Parse the URL
 def parse_url(url):
     if "://" in url:
         protocol, url = url.split("://", 1)
@@ -73,7 +79,6 @@ if address is None:
 if port is None:
     port = 2100
 
-
 # Set up signal handling (ctrl-c)
 signal.signal(signal.SIGINT, ctrl_c_pressed)
 
@@ -84,7 +89,6 @@ proxySocket.bind((address, port))
 proxySocket.listen()
 print(f"Socket is listening on {address}:{port}")
 
-
 while True:
     clientConn, clientAddr = proxySocket.accept()
     print(f"Connection received from {clientAddr}")
@@ -93,23 +97,21 @@ while True:
 
     try:
         parsed_request = parse_http_request(clientRequest)
-        print("http: " + parsed_request["http_version"])
-        print("method: " + parsed_request["method"])
-        print("url: " + parsed_request["url"])
-        # print("headers: " + parsed_request["headers"])
         url_data = parse_url(parsed_request["url"])
 
         serverSocket = socket(AF_INET, SOCK_STREAM)
         serverSocket.connect((url_data["hostname"], url_data["port"]))
-
-        server_request = f"{parsed_request["method"]} {parsed_request["http_version"]}\r\n \
-            Host: {url_data["path"]} \r\n \
-            Connection: close"
-        
-        # TODO: add headers if they exists
+        server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n \
+            Host: {url_data['hostname']} \r\n \
+            Connection: close\r\n"
+        if parsed_request["headers"]:
+            for header in parsed_request["headers"]:
+                server_request += header + "\r\n"
+        server_request += "\r\n"
+        print("server request: " + server_request)
         serverSocket.sendall(server_request.encode())
 
-        server_response = serverSocket.recv(url_data["port"])
+        server_response = serverSocket.recv(4096)
         print("Response from server received.")
 
         clientConn.sendall(server_response)
@@ -119,3 +121,4 @@ while True:
         clientConn.sendall(b"HTTP/1.0 500 Internal Server Error\r\n\r\n")
 
     clientConn.close()
+    serverSocket.close()
