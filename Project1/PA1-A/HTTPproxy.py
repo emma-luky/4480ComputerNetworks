@@ -4,6 +4,7 @@ import signal
 from optparse import OptionParser
 import sys
 from socket import *
+import threading
 
 # Signal handler for pressing ctrl-c
 def ctrl_c_pressed(signal, frame):
@@ -23,6 +24,8 @@ http_methods = [
 
 # Parse the HTTP Request
 def parse_http_request(request: bytes):  
+    """Parses the HTTP request and returns a dictionary with the necessary values"""
+    """Raises ValueErrors if necessary"""
     try:
         request_str = request.decode('utf-8')
 
@@ -69,10 +72,10 @@ def parse_http_request(request: bytes):
         }
     except ValueError as e:
         raise e
-    
 
 # Parse the URL
 def parse_url(url):
+    """Parses the URL from the HTTP request and returns a dictionary with the necessary values"""
     if "://" in url:
         protocol, url = url.split("://", 1)
 
@@ -93,6 +96,47 @@ def parse_url(url):
         "port": port,
         "path": path
     }
+
+def handle_client(clientConn, clientAddr):
+    """Handles a single client"""
+    try:
+        print(f"Connection received from {clientAddr}")
+        clientRequest = clientConn.recv(2048)
+
+        parsed_request = parse_http_request(clientRequest)
+        url_data = parse_url(parsed_request["url"])
+
+        serverSocket = socket(AF_INET, SOCK_STREAM)
+        serverSocket.connect((url_data["hostname"], url_data["port"]))
+
+        # Build server request
+        server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n" \
+                         f"Host: {url_data['hostname']}\r\n" \
+                         f"Connection: close\r\n"
+        if parsed_request["headers"]:
+            for header, value in parsed_request["headers"].items():
+                header_str = header.decode('utf-8')
+                value_str = value.decode('utf-8')
+                if header_str.lower() != "connection":
+                    server_request += f"{header_str}: {value_str}\r\n"
+        server_request += "\r\n"
+
+        print("server request: " + server_request)
+        serverSocket.sendall(server_request.encode())
+
+        # Receive and forward the server response
+        while True:
+            server_response = serverSocket.recv(4096)
+            if not server_response:
+                break
+            clientConn.sendall(server_response)
+
+        serverSocket.close()
+    except ValueError as e:
+        error_message = f"HTTP/1.0 {str(e)}\r\n\r\n"
+        clientConn.sendall(error_message.encode())
+    finally:
+        clientConn.close()
 
 # Start of program execution
 # Parse out the command line server address and port number to listen to
@@ -121,36 +165,5 @@ print(f"Socket is listening on {address}:{port}")
 while True:
     clientConn, clientAddr = proxySocket.accept()
     print(f"Connection received from {clientAddr}")
-
-    clientRequest = clientConn.recv(2048)
-
-    try:
-        parsed_request = parse_http_request(clientRequest)
-        url_data = parse_url(parsed_request["url"])
-
-        serverSocket = socket(AF_INET, SOCK_STREAM)
-        serverSocket.connect((url_data["hostname"], url_data["port"]))
-        server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n \
-            Host: {url_data['hostname']} \r\n \
-            Connection: close\r\n"
-        if parsed_request["headers"]:
-            for header, value in parsed_request["headers"].items():
-                header_str = header.decode('utf-8')
-                value_str = value.decode('utf-8')
-                if header_str.lower() != "connection":
-                    server_request += f"{header_str}: {value_str}\r\n"
-        server_request += "\r\n"
-        print("server request: " + server_request)
-        serverSocket.sendall(server_request.encode())
-
-        server_response = serverSocket.recv(4096)
-        print("Response from server received.")
-        serverSocket.close()
-
-        clientConn.sendall(server_response)
-
-    except ValueError as e:
-        error_message = f"HTTP/1.0 {str(e)}\r\n\r\n"
-        clientConn.sendall(error_message.encode())
-
-    clientConn.close()
+    client_thread = threading.Thread(target=handle_client, args=(clientConn, clientAddr))
+    client_thread.start()
