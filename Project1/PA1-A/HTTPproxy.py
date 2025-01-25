@@ -29,19 +29,25 @@ def parse_http_request(request: bytes):
         lines = request_str.split("\r\n")
         
         request_line = lines[0]
-        method, url, http_version = request_line.split()
+        parts = request_line.split()
+
+        if len(parts) != 3:
+            raise ValueError("400 Bad Request")
+
+        method, url, http_version = parts
+        # method, url, http_version = request_line.split()
 
         if method.upper() not in http_methods:
-            return ValueError("400 Bad Request")
+            raise ValueError("400 Bad Request")
         if method.upper() != "GET":
             raise ValueError("501 Not Implemented")
         
         url_pattern = r"^http://[a-zA-Z0-9.-]+(:[0-9]+)?/.*$"
         if not re.match(url_pattern, url):
-            return ValueError("400 Bad Request")
+            raise ValueError("400 Bad Request")
         
-        if http_version != "HTTP/1.0":
-            return ValueError("400 Bad Request")
+        if http_version != "HTTP/1.0" or not http_version:
+            raise ValueError("400 Bad Request")
         
         # Parse headers
         header_pattern = r"^([^ ]+): (.*)$"
@@ -128,9 +134,11 @@ while True:
             Host: {url_data['hostname']} \r\n \
             Connection: close\r\n"
         if parsed_request["headers"]:
-            for header in parsed_request["headers"]:
-                if header != "Connection: keep-alive" or header != "Connection: close":
-                    server_request += header + "\r\n"
+            for header, value in parsed_request["headers"].items():
+                header_str = header.decode('utf-8')
+                value_str = value.decode('utf-8')
+                if header_str.lower() != "connection":
+                    server_request += f"{header_str}: {value_str}\r\n"
         server_request += "\r\n"
         print("server request: " + server_request)
         serverSocket.sendall(server_request.encode())
@@ -141,8 +149,8 @@ while True:
 
         clientConn.sendall(server_response)
 
-    except Exception as e:
-        print("Error:", e)
-        clientConn.sendall(b"HTTP/1.0 501 Not Implemented\r\n\r\n")
+    except ValueError as e:
+        error_message = f"HTTP/1.0 {str(e)}\r\n\r\n"
+        clientConn.sendall(error_message.encode())
 
     clientConn.close()
