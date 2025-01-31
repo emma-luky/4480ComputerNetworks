@@ -101,12 +101,20 @@ def handle_client(clientConn, clientAddr):
     """Handles a single client"""
     try:
         print(f"Connection received from {clientAddr}")
-        clientRequest = clientConn.recv(2048)
+        # clientRequest = clientConn.recv(2048)
 
-        parsed_request = parse_http_request(clientRequest)
+        client_request = b""
+        
+        while True:
+            client_request += clientConn.recv(2048)
+            if b"\r\n\r\n" in client_request:
+                break
+
+        parsed_request = parse_http_request(client_request)
         url_data = parse_url(parsed_request["url"])
 
         serverSocket = socket(AF_INET, SOCK_STREAM)
+        proxySocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         serverSocket.connect((url_data["hostname"], url_data["port"]))
 
         # Build server request
