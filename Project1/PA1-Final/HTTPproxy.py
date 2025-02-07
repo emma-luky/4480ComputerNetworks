@@ -122,6 +122,34 @@ def handle_path(path, cachingOn, cache, blocklistOn, blocklist):
         blocklist = {}
     return path
 
+def handle_server(serverSocket, clientConn, parsed_request, url_data):
+    # Build server request
+        server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n" \
+                         f"Host: {url_data['hostname']}\r\n" \
+                         f"Connection: close\r\n"
+        if parsed_request["headers"]:
+            for header, value in parsed_request["headers"].items():
+                header_str = header.decode('utf-8')
+                value_str = value.decode('utf-8')
+                if header_str.lower() != "connection":
+                    server_request += f"{header_str}: {value_str}\r\n"
+        server_request += "\r\n"
+
+        print("server request: " + server_request)
+        serverSocket.sendall(server_request.encode())
+
+        result = b""
+        # Receive and forward the server response
+        while True:
+            server_response = serverSocket.recv(4096)
+            result += server_response
+            if not server_response:
+                break
+            clientConn.sendall(server_response)
+
+        serverSocket.close()
+        return result
+
 def handle_client(clientConn, clientAddr):
     """Handles a single client"""
     try:
@@ -143,35 +171,25 @@ def handle_client(clientConn, clientAddr):
         serverSocket.connect((url_data["hostname"], url_data["port"]))
     
         # handle_path(url_data["path"], cachingOn, cache, blocklistOn, blocklist)
+        # if cachingOn:
+        #     if client_request in cache:
+        #         print("Cache hit")
+        #         clientConn.sendall(cache[client_request])
+        #         return
+        #     else:
+        #         print("Cache miss")
+        #         handle_server(serverSocket, clientConn, parsed_request, url_data)
+        # else:
+        #     cache[client_request] = handle_server(serverSocket, clientConn, parsed_request, url_data)
+        handle_server(serverSocket, clientConn, parsed_request, url_data)
+             
 
-        # Build server request
-        server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n" \
-                         f"Host: {url_data['hostname']}\r\n" \
-                         f"Connection: close\r\n"
-        if parsed_request["headers"]:
-            for header, value in parsed_request["headers"].items():
-                header_str = header.decode('utf-8')
-                value_str = value.decode('utf-8')
-                if header_str.lower() != "connection":
-                    server_request += f"{header_str}: {value_str}\r\n"
-        server_request += "\r\n"
-
-        print("server request: " + server_request)
-        serverSocket.sendall(server_request.encode())
-
-        # Receive and forward the server response
-        while True:
-            server_response = serverSocket.recv(4096)
-            if not server_response:
-                break
-            clientConn.sendall(server_response)
-
-        serverSocket.close()
     except ValueError as e:
         error_message = f"HTTP/1.0 {str(e)}\r\n\r\n"
         clientConn.sendall(error_message.encode())
     finally:
         clientConn.close()
+
 
 # Start of program execution
 # Parse out the command line server address and port number to listen to
