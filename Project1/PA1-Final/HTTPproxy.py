@@ -28,9 +28,19 @@ blocklistOn = False
 blocklist = {}
 
 # Parse the HTTP Request
-def parse_http_request(request: bytes):  
-    """Parses the HTTP request and returns a dictionary with the necessary values"""
-    """Raises ValueErrors if necessary"""
+def parse_http_request(request: bytes):
+    """
+    Parses the HTTP request and returns a dictionary with the necessary values
+
+    Args:
+        request: bytes
+
+    Returns:
+        Dictionary with the necessary values (method, url, http_version, headers)
+
+    Raises:
+        ValueErrors if necessary
+    """
     try:
         request_str = request.decode('utf-8')
 
@@ -80,7 +90,15 @@ def parse_http_request(request: bytes):
 
 # Parse the URL
 def parse_url(url):
-    """Parses the URL from the HTTP request and returns a dictionary with the necessary values"""
+    """
+    Parses the URL from the HTTP request and returns a dictionary with the necessary values
+
+    Args:
+        url: string
+
+    Returns:
+        Dictionary with the necessary values (hostname, port, path)
+    """
     if "://" in url:
         protocol, url = url.split("://", 1)
 
@@ -102,8 +120,18 @@ def parse_url(url):
         "path": path
     }
 
+
 def handle_path(path, cachingOn, cache, blocklistOn, blocklist):
-    """Handles the path of the URL"""
+    """
+    Handles the path of the URL
+
+    Args:
+        path: string
+        cachingOn: bool
+        cache: dict
+        blocklistOn: bool
+        blocklist: dict
+    """
     if "/proxy/cache/enable" in path:
         cachingOn = True
     elif "/proxy/cache/disable" in path:
@@ -120,7 +148,7 @@ def handle_path(path, cachingOn, cache, blocklistOn, blocklist):
         pass
     elif "/proxy/blocklist/flush" in path:
         blocklist = {}
-    return path
+
 
 def handle_server(serverSocket, clientConn, parsed_request, url_data):
     # Build server request
@@ -151,7 +179,13 @@ def handle_server(serverSocket, clientConn, parsed_request, url_data):
         return result
 
 def handle_client(clientConn, clientAddr):
-    """Handles a single client"""
+    """
+    Handles a single client
+
+    Args:
+        clientConn: socket
+        clientAddr: tuple
+    """
     try:
         print(f"Connection received from {clientAddr}")
         # clientRequest = clientConn.recv(2048)
@@ -171,9 +205,16 @@ def handle_client(clientConn, clientAddr):
         serverSocket.connect((url_data["hostname"], url_data["port"]))
     
         # handle_path(url_data["path"], cachingOn, cache, blocklistOn, blocklist)
+
+        if blocklistOn and url_data["hostname"] in blocklist:
+            print("Blocked")
+            clientConn.sendall(b"HTTP/1.0 403 Forbidden\r\n\r\n")
+            return
+
         # if cachingOn:
         #     if client_request in cache:
         #         print("Cache hit")
+        #         # conditional GET
         #         clientConn.sendall(cache[client_request])
         #         return
         #     else:
