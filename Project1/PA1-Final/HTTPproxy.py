@@ -143,9 +143,11 @@ def handle_path(path, cachingOn, cache, blocklistOn, blocklist):
     elif "/proxy/blocklist/disable" in path:
         blocklistOn = False
     elif "/proxy/blocklist/add/" in path:
-        pass
+        item = path.split("/proxy/blocklist/add/")[-1]
+        blocklist.add(item)
     elif "/proxy/blocklist/remove/" in path:
-        pass
+        item = path.split("/proxy/blocklist/remove/")[-1]
+        blocklist.discard(item)
     elif "/proxy/blocklist/flush" in path:
         blocklist = {}
 
@@ -178,7 +180,7 @@ def handle_server(serverSocket, clientConn, parsed_request, url_data):
         serverSocket.close()
         return result
 
-def handle_client(clientConn, clientAddr):
+def handle_client(clientConn, clientAddr, cachingOn, cache, blocklistOn, blocklist):
     """
     Handles a single client
 
@@ -259,5 +261,5 @@ print(f"Socket is listening on {address}:{port}")
 while True:
     clientConn, clientAddr = proxySocket.accept()
     print(f"Connection received from {clientAddr}")
-    client_thread = threading.Thread(target=handle_client, args=(clientConn, clientAddr))
+    client_thread = threading.Thread(target=handle_client, args=(clientConn, clientAddr, cachingOn, cache, blocklistOn, blocklist))
     client_thread.start()
