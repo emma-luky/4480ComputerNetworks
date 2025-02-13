@@ -174,10 +174,33 @@ def handle_server(server_request, serverSocket, clientConn, parsed_request):
         result += server_response
         if not server_response:
             break
-        clientConn.sendall(server_response)
+        # clientConn.sendall(server_response)
+
+    # Parse headers from server response
+    header_end = result.find(b"\r\n\r\n")
+    header_str = result[:header_end].decode('utf-8', errors='ignore')
+    headers = {}
+    status_code = None
+
+    # Get status line
+    lines = header_str.split("\r\n")
+    if len(lines) > 0:
+        status_line = lines[0]
+        parts = status_line.split(" ")
+        if len(parts) >= 3 and parts[0].startswith("HTTP"):
+            try:
+                status_code = int(parts[1])
+            except ValueError:
+                status_code = None
+
+    # Parse headers
+    for line in lines[1:]:
+        if ":" in line:
+            key, value = line.split(":", 1)
+            headers[key.strip().lower()] = value.strip()
 
     serverSocket.close()
-    return result
+    return result, headers, status_code
 
 def handle_client(clientConn, clientAddr, cachingOn, cache, blocklistOn, blocklist):
     """
@@ -227,9 +250,9 @@ def handle_client(clientConn, clientAddr, cachingOn, cache, blocklistOn, blockli
                         f"Host: {url_data['hostname']}\r\n" \
                         f"If-Modified-Since: {last_modified}\r\n" \
                         f"Connection: close\r\n"
-                response = handle_server(server_request, serverSocket, clientConn, parsed_request)
+                response, headers, status_code = handle_server(server_request, serverSocket, clientConn, parsed_request)
 
-                if response.status_code == 304:  # Not Modified
+                if status_code == 304:  # Not Modified
                     print("Not Modified")
                     clientConn.sendall(cache[url]["data"])
                     return
@@ -237,21 +260,21 @@ def handle_client(clientConn, clientAddr, cachingOn, cache, blocklistOn, blockli
                     print("Modified")
                     cache[url] = {
                         "data": response.content,
-                        "last_modified": response.headers.get("Last-Modified", formatdate(time.time())),
+                        "last_modified": headers.get("Last-Modified", formatdate(time.time())),
                     }
+                    clientConn.sendall(cache[url]["data"])
             else:
                 print("Cache miss")
+                response, headers, status_code = handle_server(server_request, serverSocket, clientConn, parsed_request)
                 cache[url] = {
-                    "data": handle_server(server_request, serverSocket, clientConn, parsed_request),
-                    "last_modified": response.headers.get("Last-Modified", formatdate(time.time()))  
+                    "data": response,
+                    "last_modified": headers.get("Last-Modified", formatdate(time.time()))  
                 }
+                clientConn.sendall(cache[url]["data"])
         else:
             print("Caching is off")
-            cache[url] = {
-                "data": handle_server(server_request, serverSocket, clientConn, parsed_request),
-                "last_modified": response.headers.get("Last-Modified", formatdate(time.time()))  
-            }
-        clientConn.sendall(cache[url]["data"])
+            response, headers, status_code = handle_server(server_request, serverSocket, clientConn, parsed_request)
+            clientConn.sendall(response)
 
     except ValueError as e:
         error_message = f"HTTP/1.0 {str(e)}\r\n\r\n"
@@ -286,6 +309,5 @@ print(f"Socket is listening on {address}:{port}")
 
 while True:
     clientConn, clientAddr = proxySocket.accept()
-    print(f"Connection received from {clientAddr}")
     client_thread = threading.Thread(target=handle_client, args=(clientConn, clientAddr, cachingOn, cache, blocklistOn, blocklist))
     client_thread.start()
