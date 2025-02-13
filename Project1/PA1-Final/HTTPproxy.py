@@ -1,10 +1,12 @@
 # Place your imports here
+from email.utils import formatdate
 import re
 import signal
 from optparse import OptionParser
 import sys
 from socket import *
 import threading
+import time
 
 # Signal handler for pressing ctrl-c
 def ctrl_c_pressed(signal, frame):
@@ -121,7 +123,7 @@ def parse_url(url):
     }
 
 
-def handle_path(path, cachingOn, cache, blocklistOn, blocklist):
+def handle_path(path, cachingOn, blocklistOn, cache, blocklist):
     """
     Handles the path of the URL
 
@@ -150,35 +152,32 @@ def handle_path(path, cachingOn, cache, blocklistOn, blocklist):
         blocklist.discard(item)
     elif "/proxy/blocklist/flush" in path:
         blocklist = {}
+    return cachingOn, blocklistOn, cache, blocklist
 
-
-def handle_server(serverSocket, clientConn, parsed_request, url_data):
+def handle_server(server_request, serverSocket, clientConn, parsed_request):
     # Build server request
-        server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n" \
-                         f"Host: {url_data['hostname']}\r\n" \
-                         f"Connection: close\r\n"
-        if parsed_request["headers"]:
-            for header, value in parsed_request["headers"].items():
-                header_str = header.decode('utf-8')
-                value_str = value.decode('utf-8')
-                if header_str.lower() != "connection":
-                    server_request += f"{header_str}: {value_str}\r\n"
-        server_request += "\r\n"
+    if parsed_request["headers"]:
+        for header, value in parsed_request["headers"].items():
+            header_str = header.decode('utf-8')
+            value_str = value.decode('utf-8')
+            if header_str.lower() != "connection":
+                server_request += f"{header_str}: {value_str}\r\n"
+    server_request += "\r\n"
 
-        print("server request: " + server_request)
-        serverSocket.sendall(server_request.encode())
+    print("server request: " + server_request)
+    serverSocket.sendall(server_request.encode())
 
-        result = b""
-        # Receive and forward the server response
-        while True:
-            server_response = serverSocket.recv(4096)
-            result += server_response
-            if not server_response:
-                break
-            clientConn.sendall(server_response)
+    result = b""
+    # Receive and forward the server response
+    while True:
+        server_response = serverSocket.recv(4096)
+        result += server_response
+        if not server_response:
+            break
+        clientConn.sendall(server_response)
 
-        serverSocket.close()
-        return result
+    serverSocket.close()
+    return result
 
 def handle_client(clientConn, clientAddr, cachingOn, cache, blocklistOn, blocklist):
     """
@@ -190,7 +189,6 @@ def handle_client(clientConn, clientAddr, cachingOn, cache, blocklistOn, blockli
     """
     try:
         print(f"Connection received from {clientAddr}")
-        # clientRequest = clientConn.recv(2048)
 
         client_request = b""
         
@@ -200,32 +198,60 @@ def handle_client(clientConn, clientAddr, cachingOn, cache, blocklistOn, blockli
                 break
 
         parsed_request = parse_http_request(client_request)
-        url_data = parse_url(parsed_request["url"])
+        url = parsed_request["url"]
+        url_data = parse_url(url)
 
         serverSocket = socket(AF_INET, SOCK_STREAM)
         proxySocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         serverSocket.connect((url_data["hostname"], url_data["port"]))
     
-        # handle_path(url_data["path"], cachingOn, cache, blocklistOn, blocklist)
+        cachingOn, blocklistOn, cache, blocklist = handle_path(
+            url_data["path"], cachingOn, blocklistOn, cache, blocklist
+        )
 
         if blocklistOn and url_data["hostname"] in blocklist:
-            print("Blocked")
             clientConn.sendall(b"HTTP/1.0 403 Forbidden\r\n\r\n")
             return
+        
+        server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n" \
+            f"Host: {url_data['hostname']}\r\n" \
+            f"Connection: close\r\n"
 
-        # if cachingOn:
-        #     if client_request in cache:
-        #         print("Cache hit")
-        #         # conditional GET
-        #         clientConn.sendall(cache[client_request])
-        #         return
-        #     else:
-        #         print("Cache miss")
-        #         handle_server(serverSocket, clientConn, parsed_request, url_data)
-        # else:
-        #     cache[client_request] = handle_server(serverSocket, clientConn, parsed_request, url_data)
-        handle_server(serverSocket, clientConn, parsed_request, url_data)
-             
+        if cachingOn:
+            if url in cache:
+                print("Cache hit")
+                last_modified = cache[url].get("last_modified")
+
+                # Send a conditional GET request
+                server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n" \
+                        f"Host: {url_data['hostname']}\r\n" \
+                        f"If-Modified-Since: {last_modified}\r\n" \
+                        f"Connection: close\r\n"
+                response = handle_server(server_request, serverSocket, clientConn, parsed_request)
+
+                if response.status_code == 304:  # Not Modified
+                    print("Not Modified")
+                    clientConn.sendall(cache[url]["data"])
+                    return
+                else:
+                    print("Modified")
+                    cache[url] = {
+                        "data": response.content,
+                        "last_modified": response.headers.get("Last-Modified", formatdate(time.time())),
+                    }
+            else:
+                print("Cache miss")
+                cache[url] = {
+                    "data": handle_server(server_request, serverSocket, clientConn, parsed_request),
+                    "last_modified": response.headers.get("Last-Modified", formatdate(time.time()))  
+                }
+        else:
+            print("Caching is off")
+            cache[url] = {
+                "data": handle_server(server_request, serverSocket, clientConn, parsed_request),
+                "last_modified": response.headers.get("Last-Modified", formatdate(time.time()))  
+            }
+        clientConn.sendall(cache[url]["data"])
 
     except ValueError as e:
         error_message = f"HTTP/1.0 {str(e)}\r\n\r\n"
