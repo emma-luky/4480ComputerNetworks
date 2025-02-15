@@ -1,12 +1,10 @@
 # Place your imports here
-from email.utils import formatdate
 import re
 import signal
 from optparse import OptionParser
 import sys
 from socket import *
 import threading
-import time
 
 # Signal handler for pressing ctrl-c
 def ctrl_c_pressed(signal, frame):
@@ -24,13 +22,16 @@ http_methods = [
     "TRACE"       
 ]
 
-cachingOn = False
-cache = {}
-blocklistOn = False
-blocklist = {}
 
-# Parse the HTTP Request
-def parse_http_request(request: bytes):
+class ProxyConfig:
+    """ Shared configuration for the proxy server """
+    def __init__(self):
+        self.cache = {} 
+        self.caching_on = False  
+        self.blocklist = [] 
+        self.blocklist_on = False 
+
+def parse_http_request(request):
     """
     Parses the HTTP request and returns a dictionary with the necessary values
 
@@ -51,17 +52,21 @@ def parse_http_request(request: bytes):
         request_line = lines[0]
         parts = request_line.split()
 
+        # if it is a poorly malformed request
         if len(parts) != 3:
             raise ValueError("400 Bad Request")
 
         method, url, http_version = parts
-        # method, url, http_version = request_line.split()
 
+        # if it is an invalid http method
         if method.upper() not in http_methods:
             raise ValueError("400 Bad Request")
+        
+        # if it is valid http method, but not a GET
         if method.upper() != "GET":
             raise ValueError("501 Not Implemented")
         
+        # Checks if its a properly formatte URL
         url_pattern = r"^http://[a-zA-Z0-9.-]+(:[0-9]+)?/.*$"
         if not re.match(url_pattern, url):
             raise ValueError("400 Bad Request")
@@ -90,7 +95,6 @@ def parse_http_request(request: bytes):
     except ValueError as e:
         raise e
 
-# Parse the URL
 def parse_url(url):
     """
     Parses the URL from the HTTP request and returns a dictionary with the necessary values
@@ -122,47 +126,61 @@ def parse_url(url):
         "path": path
     }
 
-
-def handle_path(path, cachingOn, blocklistOn, cache, blocklist, isChanged):
+def handle_path(path, config):
     """
     Handles the path of the URL
 
     Args:
         path: string
-        cachingOn: bool
-        cache: dict
-        blocklistOn: bool
-        blocklist: dict
+        config: ProxyConfig
+
+    Returns:
+        is_changed: bool
+            if a special absolute path is found, isChanged is marked True, otherwise it stays False
     """
+    is_changed= False
     if "/proxy/cache/enable" in path:
-        cachingOn = True
-        isChanged = True
+        config.caching_on = True
+        is_changed = True
     elif "/proxy/cache/disable" in path:
-        cachingOn = False
-        isChanged = True
+        config.caching_on = False
+        is_changed = True
     elif "/proxy/cache/flush" in path:
-        cache = {}
-        isChanged = True
+        config.cache = {}
+        is_changed = True
     elif "/proxy/blocklist/enable" in path:
-        blocklistOn = True
-        isChanged = True
+        config.blocklist_on = True
+        is_changed = True
     elif "/proxy/blocklist/disable" in path:
-        blocklistOn = False
-        isChanged = True
+        config.blocklist_on = False
+        is_changed = True
     elif "/proxy/blocklist/add/" in path:
         item = path.split("/proxy/blocklist/add/")[-1]
-        blocklist.add(item)
-        isChanged = True
+        config.blocklist.add(item)
+        is_changed = True
     elif "/proxy/blocklist/remove/" in path:
         item = path.split("/proxy/blocklist/remove/")[-1]
-        blocklist.discard(item)
-        isChanged = True
+        config.blocklist.discard(item)
+        is_changed = True
     elif "/proxy/blocklist/flush" in path:
-        blocklist = {}
-        isChanged = True
-    return cachingOn, blocklistOn, cache, blocklist, isChanged
+        config.blocklist = {}
+        is_changed = True
+    return is_changed
 
-def handle_server(server_request, serverSocket, parsed_request):
+def handle_server(server_request, server_socket, parsed_request):
+    """
+    Handles the connection to the server.
+    Sends the request and then parses the server
+    response (result) to send to the client.
+
+    Args:
+        server_request: string
+        server_socket: scoket
+        parsed_request: dict
+
+    Returns:
+        Dictionary with the necessary values (result, header, status_code)
+    """
     # Build server request
     if parsed_request["headers"]:
         for header, value in parsed_request["headers"].items():
@@ -173,12 +191,12 @@ def handle_server(server_request, serverSocket, parsed_request):
     server_request += "\r\n"
 
     print("server request: " + server_request)
-    serverSocket.sendall(server_request.encode())
+    server_socket.sendall(server_request.encode())
 
     result = b""
     # Receive and forward the server response
     while True:
-        server_response = serverSocket.recv(4096)
+        server_response = server_socket.recv(4096)
         result += server_response
         if not server_response:
             break
@@ -206,25 +224,23 @@ def handle_server(server_request, serverSocket, parsed_request):
             key, value = line.split(":", 1)
             headers[key.strip().lower()] = value.strip()
 
-    serverSocket.close()
+    server_socket.close()
     return result, headers, status_code
 
-def handle_client(clientConn, clientAddr, cachingOn, cache, blocklistOn, blocklist):
+def handle_client(client_conn, client_addr, config):
     """
-    Handles a single client
+    Handles a single client.
 
     Args:
-        clientConn: socket
-        clientAddr: tuple
+        client_conn: socket
+        client_addr: tuple
     """
-    isChanged = False
     try:
-        print(f"Connection received from {clientAddr}")
+        print(f"Connection received from {client_addr}")
 
         client_request = b""
-        
         while True:
-            client_request += clientConn.recv(2048)
+            client_request += client_conn.recv(2048)
             if b"\r\n\r\n" in client_request:
                 break
 
@@ -232,68 +248,66 @@ def handle_client(clientConn, clientAddr, cachingOn, cache, blocklistOn, blockli
         url = parsed_request["url"]
         url_data = parse_url(url)
 
-        serverSocket = socket(AF_INET, SOCK_STREAM)
-        proxySocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-        serverSocket.connect((url_data["hostname"], url_data["port"]))
-    
-        cachingOn, blocklistOn, cache, blocklist, isChanged = handle_path(
-            url_data["path"], cachingOn, blocklistOn, cache, blocklist, isChanged
-        )
-        if isChanged:
-            clientConn.sendall(b"HTTP/1.0 200 OK\r\n\r\n")
-        else:
-            if blocklistOn and url_data["hostname"] in blocklist:
-                clientConn.sendall(b"HTTP/1.0 403 Forbidden\r\n\r\n")
+        server_socket = socket(AF_INET, SOCK_STREAM)
+        proxy_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+        server_socket.connect((url_data["hostname"], url_data["port"]))
+
+        is_changed = handle_path(url_data["path"], config)
+
+        if is_changed:
+            client_conn.sendall(b"HTTP/1.0 200 OK\r\n\r\n")
+            client_conn.close()
+            return
+
+        if config.blocklist_on and url_data["hostname"] in config.blocklist:
+            client_conn.sendall(b"HTTP/1.0 403 Forbidden\r\n\r\n")
+            return
+
+        server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n" \
+                         f"Host: {url_data['hostname']}\r\n" \
+                         f"Connection: close\r\n"
+
+        # Add If-Modified-Since if caching is enabled and cache entry exists
+        if config.caching_on and url in config.cache:
+            last_modified = config.cache[url].get("last_modified")
+            if last_modified:
+                server_request += f"If-Modified-Since: {last_modified}\r\n"
+
+        # Add headers from client request
+        if parsed_request["headers"]:
+            for header, value in parsed_request["headers"].items():
+                header_str = header.decode('utf-8')
+                value_str = value.decode('utf-8')
+                if header_str.lower() != "connection":
+                    server_request += f"{header_str}: {value_str}\r\n"
+        server_request += "\r\n"
+
+        response, headers, status_code = handle_server(server_request, server_socket, parsed_request)
+
+        # Handle caching of the response
+        if config.caching_on:
+            if status_code == 304:
+                client_conn.sendall(config.cache[url]["data"])
                 return
-            
-            server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n" \
-                f"Host: {url_data['hostname']}\r\n" \
-                f"Connection: close\r\n"
-
-            if cachingOn:
-                if url in cache:
-                    print("Cache hit")
-                    last_modified = cache[url].get("last_modified")
-
-                    # Send a conditional GET request
-                    server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n" \
-                            f"Host: {url_data['hostname']}\r\n" \
-                            f"If-Modified-Since: {last_modified}\r\n" \
-                            f"Connection: close\r\n"
-                    response, headers, status_code = handle_server(server_request, serverSocket, clientConn, parsed_request)
-
-                    if status_code == 304:  # Not Modified
-                        print("Not Modified")
-                        clientConn.sendall(cache[url]["data"])
-                        return
-                    else:
-                        print("Modified")
-                        cache[url] = {
-                            "data": response.content,
-                            "last_modified": headers.get("Last-Modified", formatdate(time.time())),
-                        }
-                        clientConn.sendall(cache[url]["data"])
-                else:
-                    print("Cache miss")
-                    response, headers, status_code = handle_server(server_request, serverSocket, clientConn, parsed_request)
-                    cache[url] = {
-                        "data": response,
-                        "last_modified": headers.get("Last-Modified", formatdate(time.time()))  
-                    }
-                    clientConn.sendall(cache[url]["data"])
             else:
-                print("Caching is off")
-                response, headers, status_code = handle_server(server_request, serverSocket, parsed_request)
-                clientConn.sendall(response)
+                last_modified = headers.get("last-modified") or headers.get("date")
+                if last_modified:
+                    config.cache[url] = {
+                        "data": response,
+                        "last_modified": last_modified
+                    }
+
+        client_conn.sendall(response)
+
     except ValueError as e:
         error_message = f"HTTP/1.0 {str(e)}\r\n\r\n"
-        clientConn.sendall(error_message.encode())
+        client_conn.sendall(error_message.encode())
     finally:
-        clientConn.close()
-
+        client_conn.close()
 
 # Start of program execution
 # Parse out the command line server address and port number to listen to
+config = ProxyConfig()
 parser = OptionParser()
 parser.add_option("-p", type="int", dest="serverPort")
 parser.add_option("-a", type="string", dest="serverAddress")
@@ -309,14 +323,14 @@ if port is None:
 # Set up signal handling (ctrl-c)
 signal.signal(signal.SIGINT, ctrl_c_pressed)
 
-proxyPort = port
-proxySocket = socket(AF_INET, SOCK_STREAM)
-proxySocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-proxySocket.bind((address, port))
-proxySocket.listen()
+proxy_port = port
+proxy_socket = socket(AF_INET, SOCK_STREAM)
+proxy_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+proxy_socket.bind((address, port))
+proxy_socket.listen()
 print(f"Socket is listening on {address}:{port}")
 
 while True:
-    clientConn, clientAddr = proxySocket.accept()
-    client_thread = threading.Thread(target=handle_client, args=(clientConn, clientAddr, cachingOn, cache, blocklistOn, blocklist))
+    client_conn, client_addr = proxy_socket.accept()
+    client_thread = threading.Thread(target=handle_client, args=(client_conn, client_addr, config))
     client_thread.start()
