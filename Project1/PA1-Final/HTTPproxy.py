@@ -248,10 +248,6 @@ def handle_client(client_conn, client_addr, config):
         url = parsed_request["url"]
         url_data = parse_url(url)
 
-        server_socket = socket(AF_INET, SOCK_STREAM)
-        proxy_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-        server_socket.connect((url_data["hostname"], url_data["port"]))
-
         is_changed = handle_path(url_data["path"], config)
 
         if is_changed:
@@ -262,6 +258,10 @@ def handle_client(client_conn, client_addr, config):
         if config.blocklist_on and url_data["hostname"] in config.blocklist:
             client_conn.sendall(b"HTTP/1.0 403 Forbidden\r\n\r\n")
             return
+
+        server_socket = socket(AF_INET, SOCK_STREAM)
+        proxy_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+        server_socket.connect((url_data["hostname"], url_data["port"]))
 
         server_request = f"{parsed_request['method']} {url_data['path']} {parsed_request['http_version']}\r\n" \
                          f"Host: {url_data['hostname']}\r\n" \
