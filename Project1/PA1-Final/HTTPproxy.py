@@ -28,7 +28,7 @@ class ProxyConfig:
     def __init__(self):
         self.cache = {} 
         self.caching_on = False  
-        self.blocklist = [] 
+        self.blocklist = set() 
         self.blocklist_on = False 
 
 def parse_http_request(request):
