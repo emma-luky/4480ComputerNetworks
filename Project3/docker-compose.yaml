@@ -1,5 +1,17 @@
+version: "3"
 
 services:
+  ha:
+    build: .
+    stdin_open: true
+    tty: true
+    cap_add:
+      - ALL
+    privileged: true
+    networks:
+      net14:
+        ipv4_address: 10.0.14.3
+
   r1:
     build: .
     stdin_open: true
@@ -10,19 +22,51 @@ services:
     networks:
       net14:
         ipv4_address: 10.0.14.4
-      net15:
-        ipv4_address: 10.0.15.4
+      net_r1_r2:
+        ipv4_address: 10.0.2.1
+      net_r1_r4:
+        ipv4_address: 10.0.3.1
 
-  ha:
+  r2:
     build: .
     stdin_open: true
     tty: true
     cap_add:
       - ALL
-    privileged: true    
+    privileged: true
     networks:
-      net14:
-        ipv4_address: 10.0.14.3
+      net_r1_r2:
+        ipv4_address: 10.0.2.2
+      net_r2_r3:
+        ipv4_address: 10.0.4.2
+
+  r4:
+    build: .
+    stdin_open: true
+    tty: true
+    cap_add:
+      - ALL
+    privileged: true
+    networks:
+      net_r1_r4:
+        ipv4_address: 10.0.3.4
+      net_r4_r3:
+        ipv4_address: 10.0.5.4
+
+  r3:
+    build: .
+    stdin_open: true
+    tty: true
+    cap_add:
+      - ALL
+    privileged: true
+    networks:
+      net15:
+        ipv4_address: 10.0.15.4
+      net_r2_r3:
+        ipv4_address: 10.0.4.3
+      net_r4_r3:
+        ipv4_address: 10.0.5.3
 
   hb:
     build: .
@@ -30,7 +74,7 @@ services:
     tty: true
     cap_add:
       - ALL
-    privileged: true    
+    privileged: true
     networks:
       net15:
         ipv4_address: 10.0.15.3
@@ -38,16 +82,25 @@ services:
 networks:
   net14:
     ipam:
-      driver: default
       config:
         - subnet: 10.0.14.0/24
   net15:
     ipam:
-      driver: default
       config:
         - subnet: 10.0.15.0/24
-
-
-
-
-
+  net_r1_r2:
+    ipam:
+      config:
+        - subnet: 10.0.2.0/24
+  net_r1_r4:
+    ipam:
+      config:
+        - subnet: 10.0.3.0/24
+  net_r2_r3:
+    ipam:
+      config:
+        - subnet: 10.0.4.0/24
+  net_r4_r3:
+    ipam:
+      config:
+        - subnet: 10.0.5.0/24
