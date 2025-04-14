@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the router container names
-ROUTERS=("r1" "r2" "r3" "r4")
+ROUTERS=("part1-r1" "part1-r2" "part1-r3" "part1-r4")
 
 # Function to install FRR on a router
 install_frr() {
