@@ -1,60 +1,51 @@
 #!/bin/bash
 
-# Define the router container names
+# Define router names and OSPF router-IDs
 ROUTERS=("part1-r1-1" "part1-r2-1" "part1-r3-1" "part1-r4-1")
+ROUTER_IDS=("1.1.1.1" "2.2.2.2" "3.3.3.3" "4.4.4.4")
 
-# Function to install FRR on a router
-install_frr() {
+# Define networks each router should advertise (example: adjust for your topology)
+ROUTER_NETWORKS=(
+  "10.0.10.0/24 10.0.11.0/24"  # R1
+  "10.0.11.0/24 10.0.12.0/24"  # R2
+  "10.0.12.0/24 10.0.13.0/24"  # R3
+  "10.0.13.0/24 10.0.14.0/24"  # R4
+)
+
+install_frr_and_configure_ospf() {
     local router=$1
-    echo "Setting up FRR on $router..."
-    
-    # Connect to the router container and run commands
-    docker exec $router bash -c '
-        # Update and install prerequisites
+    local id=$2
+    local networks=$3
+
+    echo "Setting up FRR and OSPF on $router..."
+
+    docker exec $router bash -c "
         apt -y update
         apt -y install curl gnupg lsb-release
-        
-        # Add FRR repository keys
+
         curl -s https://deb.frrouting.org/frr/keys.gpg | tee /usr/share/keyrings/frrouting.gpg > /dev/null
-        
-        # Add FRR repository
-        FRRVER="frr-stable"
-        echo deb "[signed-by=/usr/share/keyrings/frrouting.gpg]" https://deb.frrouting.org/frr $(lsb_release -s -c) $FRRVER | tee -a /etc/apt/sources.list.d/frr.list
-        
-        # Install FRR
+        FRRVER='frr-stable'
+        echo deb '[signed-by=/usr/share/keyrings/frrouting.gpg]' https://deb.frrouting.org/frr \$(lsb_release -s -c) \$FRRVER | tee -a /etc/apt/sources.list.d/frr.list
+
         apt update && apt -y install frr frr-pythontools
-        
-        # Enable OSPF daemon
-        sed -i "s/ospfd=no/ospfd=yes/g" /etc/frr/daemons
-        
-        # Restart FRR service
+        sed -i 's/ospfd=no/ospfd=yes/g' /etc/frr/daemons
         service frr restart
-        
-        # Verify OSPF is running
-        echo "Verifying OSPF daemon on $HOSTNAME:"
-        ps -ef | grep ospf
-    '
-    
-    echo "FRR setup completed on $router"
+    "
+
+    # Inject the OSPF config using vtysh
+    echo "Configuring OSPF on $router..."
+    docker exec $router vtysh -c "configure terminal" \
+        -c "router ospf" \
+        -c "ospf router-id $id" \
+        $(for net in $networks; do echo -c "network $net area 0.0.0.0"; done) \
+        -c "exit" \
+        -c "write memory"
+
+    echo "FRR and OSPF setup complete for $router."
     echo "----------------------------------------"
 }
 
-# Main script execution
-echo "Starting FRR setup on all routers..."
-
-# Check if containers are running
-for router in "${ROUTERS[@]}"; do
-    if ! docker ps | grep -q "$router"; then
-        echo "Error: Container $router is not running!"
-        echo "Please start your Docker containers first with 'docker-compose up -d'"
-        exit 1
-    fi
+# Run setup for each router
+for i in "${!ROUTERS[@]}"; do
+    install_frr_and_configure_ospf "${ROUTERS[$i]}" "${ROUTER_IDS[$i]}" "${ROUTER_NETWORKS[$i]}"
 done
-
-# Install FRR on each router
-for router in "${ROUTERS[@]}"; do
-    install_frr $router
-done
-
-echo "FRR setup completed on all routers!"
-echo "You can now configure OSPF on each router using 'vtysh'"
