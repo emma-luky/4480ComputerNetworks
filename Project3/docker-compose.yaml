@@ -16,10 +16,6 @@ services:
     cap_add:
       - ALL
     privileged: true
-    volumes:
-      - ./r1/frr.conf:/etc/frr/frr.conf
-      - ./frr-startup.sh:/frr-startup.sh
-    command: ["/bin/bash", "/frr-startup.sh"]
     networks:
       net14:
         ipv4_address: 10.0.14.4
@@ -34,10 +30,6 @@ services:
     cap_add:
       - ALL
     privileged: true
-    volumes:
-      - ./r2/frr.conf:/etc/frr/frr.conf
-      - ./frr-startup.sh:/frr-startup.sh
-    command: ["/bin/bash", "/frr-startup.sh"]
     networks:
       net_r1_r2:
         ipv4_address: 10.0.2.2
@@ -50,10 +42,6 @@ services:
     cap_add:
       - ALL
     privileged: true
-    volumes:
-      - ./r4/frr.conf:/etc/frr/frr.conf
-      - ./frr-startup.sh:/frr-startup.sh
-    command: ["/bin/bash", "/frr-startup.sh"]
     networks:
       net_r1_r4:
         ipv4_address: 10.0.3.4
@@ -66,10 +54,6 @@ services:
     cap_add:
       - ALL
     privileged: true
-    volumes:
-      - ./r3/frr.conf:/etc/frr/frr.conf
-      - ./frr-startup.sh:/frr-startup.sh
-    command: ["/bin/bash", "/frr-startup.sh"]
     networks:
       net15:
         ipv4_address: 10.0.15.4
