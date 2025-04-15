@@ -32,14 +32,22 @@ install_frr_and_configure_ospf() {
         service frr restart
     "
 
-    # Inject the OSPF config using vtysh
+    # Construct vtysh command as a multiline string
+    VTYSH_COMMAND="configure terminal
+router ospf
+ospf router-id $id"
+
+    for net in $networks; do
+        VTYSH_COMMAND+="
+network $net area 0.0.0.0"
+    done
+
+    VTYSH_COMMAND+="
+exit
+write memory"
+
     echo "Configuring OSPF on $router..."
-    docker exec $router vtysh -c "configure terminal" \
-        -c "router ospf" \
-        -c "ospf router-id $id" \
-        $(for net in $networks; do echo -c "network $net area 0.0.0.0"; done) \
-        -c "exit" \
-        -c "write memory"
+    docker exec -i $router vtysh <<< "$VTYSH_COMMAND"
 
     echo "FRR and OSPF setup complete for $router."
     echo "----------------------------------------"
