@@ -44,6 +44,7 @@ network $net area 0.0.0.0"
 
     VTYSH_COMMAND+="
 exit
+exit
 write memory"
 
     echo "Configuring OSPF on $router..."
