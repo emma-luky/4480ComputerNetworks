@@ -17,35 +17,22 @@ def run(cmd):
 
 
 def build_topology():
-    run("docker-compose up -d --build")
+    print("\n[+] Building router topology")
+    run("./dockersetup")
+    run("sudo bash")
+    run("docker-compose up -d")
 
 
 def start_ospf():
-    for i, router in enumerate(ROUTERS):
-        id = ROUTER_IDS[i]
-        networks = ROUTER_NETWORKS[i]
-
-        print(f"\n[+] Setting up {router}")
-        run(f"docker exec {router} bash -c \"apt update && apt install -y curl gnupg lsb-release\"")
-        run(f"docker exec {router} bash -c \"curl -s https://deb.frrouting.org/frr/keys.gpg | tee /usr/share/keyrings/frrouting.gpg > /dev/null\"")
-        run(f"docker exec {router} bash -c \"echo 'deb [signed-by=/usr/share/keyrings/frrouting.gpg] https://deb.frrouting.org/frr $(lsb_release -s -c) frr-stable' >> /etc/apt/sources.list.d/frr.list\"")
-        run(f"docker exec {router} bash -c \"apt update && apt install -y frr frr-pythontools\"")
-        run(f"docker exec {router} bash -c \"sed -i 's/ospfd=no/ospfd=yes/' /etc/frr/daemons\"")
-        run(f"docker exec {router} service frr restart")
-
-        # Configure OSPF
-        ospf_commands = f"docker exec {router} vtysh -c 'configure terminal' -c 'router ospf' -c 'ospf router-id {id}'"
-        for net in networks.split():
-            ospf_commands += f" -c 'network {net} area 0.0.0.0'"
-        ospf_commands += " -c 'exit' -c 'write memory'"
-        run(ospf_commands)
+    print("\n[+] Configuring ospf")
+    run(chmod +x ./setup_frr.sh)
+    run(./setup_frr.sh)
 
 
 def configure_hosts():
     print("\n[+] Configuring host routes")
-    run("docker exec ha ip route add 10.0.15.0/24 via 10.0.14.4")
-    run("docker exec hb ip route add 10.0.14.0/24 via 10.0.15.4")
-
+    run("docker exec -it part1-ha-1 route add -net 10.0.15.0/24 gw 10.0.14.4")
+    run("docker exec -it part1-hb-1 route add -net 10.0.14.0/24 gw 10.0.15.4")
 
 def change_path(path):
     if path == "north":
@@ -60,7 +47,7 @@ def change_path(path):
 
 def main():
     parser = argparse.ArgumentParser(description="Orchestrator to control Docker OSPF traffic routing.")
-    parser.add_argument("--build-topology", action="store_true", help="Build the Docker network topology")
+    parser.add_argument("--build-topology", action="store_true", help="Build the router/network topology")
     parser.add_argument("--start-ospf", action="store_true", help="Install and configure FRR and OSPF")
     parser.add_argument("--configure-hosts", action="store_true", help="Configure routes on host containers")
     parser.add_argument("--path", choices=["north", "south"], help="Shift traffic to a given path")
