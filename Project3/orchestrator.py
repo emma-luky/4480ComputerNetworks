@@ -19,8 +19,7 @@ def run(cmd):
 def build_topology():
     print("\n[+] Building router topology")
     run("./dockersetup")
-    run("sudo bash")
-    run("docker-compose up -d")
+    run("sudo docker-compose up -d")
 
 
 def start_ospf():
