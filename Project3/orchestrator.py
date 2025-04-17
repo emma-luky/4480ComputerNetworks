@@ -23,6 +23,7 @@ def build_topology():
 
 
 def build_containers():
+    print("\n[+] Building containers")
     run("docker-compose up -d")
 
 
