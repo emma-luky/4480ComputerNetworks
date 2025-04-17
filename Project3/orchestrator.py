@@ -25,8 +25,8 @@ def build_topology():
 
 def start_ospf():
     print("\n[+] Configuring ospf")
-    run(chmod +x ./setup_frr.sh)
-    run(./setup_frr.sh)
+    run("chmod +x ./setup_frr.sh")
+    run("./setup_frr.sh")
 
 
 def configure_hosts():
