@@ -19,7 +19,11 @@ def run(cmd):
 def build_topology():
     print("\n[+] Building router topology")
     run("./dockersetup")
-    run("sudo docker-compose up -d")
+    run("sudo bash")
+
+
+def build_containers():
+    run("docker-compose up -d")
 
 
 def start_ospf():
@@ -32,6 +36,7 @@ def configure_hosts():
     print("\n[+] Configuring host routes")
     run("docker exec -it part1-ha-1 route add -net 10.0.15.0/24 gw 10.0.14.4")
     run("docker exec -it part1-hb-1 route add -net 10.0.14.0/24 gw 10.0.15.4")
+
 
 def change_path(path):
     if path == "north":
