@@ -52,6 +52,7 @@ def change_path(path):
 def main():
     parser = argparse.ArgumentParser(description="Orchestrator to control Docker OSPF traffic routing.")
     parser.add_argument("--build-topology", action="store_true", help="Build the router/network topology")
+    parser.add_argument("--build-containers", action="store_true", help="Build the router and host containers")
     parser.add_argument("--start-ospf", action="store_true", help="Install and configure FRR and OSPF")
     parser.add_argument("--configure-hosts", action="store_true", help="Configure routes on host containers")
     parser.add_argument("--path", choices=["north", "south"], help="Shift traffic to a given path")
