@@ -61,6 +61,8 @@ def main():
 
     if args.build_topology:
         build_topology()
+    if args.build_containers:
+        build_containers()
     if args.start_ospf:
         start_ospf()
     if args.configure_hosts:
