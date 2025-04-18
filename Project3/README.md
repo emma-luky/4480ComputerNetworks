@@ -12,4 +12,6 @@
 11. `python3 orchestrator.py --configure-hosts`
 
 **NOTE: run python3 orchestrator.py -h to see all options**
+
+
 Your docker containers are now all set up and running and ready for testing.
