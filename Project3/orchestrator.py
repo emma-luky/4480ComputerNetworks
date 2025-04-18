@@ -42,10 +42,10 @@ def configure_hosts():
 def change_path(path):
     if path == "north":
         print("\n[+] Shifting traffic to north path (R1-R2-R3)")
-        run("docker exec r1 vtysh -c 'conf t' -c 'interface eth2' -c 'ip ospf cost 10' -c 'exit' -c 'interface eth1' -c 'ip ospf cost 100' -c 'exit' -c 'exit' -c 'write memory'")
+        run("docker exec part1-r1-1 vtysh -c 'conf t' -c 'interface eth2' -c 'ip ospf cost 10' -c 'exit' -c 'interface eth1' -c 'ip ospf cost 100' -c 'exit' -c 'exit' -c 'write memory'")
     elif path == "south":
         print("\n[+] Shifting traffic to south path (R1-R4-R3)")
-        run("docker exec r1 vtysh -c 'conf t' -c 'interface eth2' -c 'ip ospf cost 100' -c 'exit' -c 'interface eth1' -c 'ip ospf cost 10' -c 'exit' -c 'exit' -c 'write memory'")
+        run("docker exec part1-r1-1 vtysh -c 'conf t' -c 'interface eth2' -c 'ip ospf cost 100' -c 'exit' -c 'interface eth1' -c 'ip ospf cost 10' -c 'exit' -c 'exit' -c 'write memory'")
     else:
         print("Invalid path specified. Use 'north' or 'south'.")
 
