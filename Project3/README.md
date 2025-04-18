@@ -6,9 +6,10 @@
 5. `cp ../../../4480ComputerNetworks/Project3/setup_frr.sh setup_frr.sh`
 6. `cp ../../../4480ComputerNetworks/Project3/orchestrator.py orchestrator.py`
 7. `cp -f ../../../4480ComputerNetworks/Project3/docker-compose.yaml docker-compose.yaml`
-NOTE: run python3 orchestrator.py -h to see all options
 8. `python3 orchestrator.py --build-topology`
 9. `python3 orchestrator.py --build-containers`
 10. `python3 orchestrator.py --start-ospf`
 11. `python3 orchestrator.py --configure-hosts`
+
+**NOTE: run python3 orchestrator.py -h to see all options**
 Your docker containers are now all set up and running and ready for testing.
