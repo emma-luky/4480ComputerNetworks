@@ -30,6 +30,7 @@ class Mapping:
 class LoadBalancer(object):
     def __init__(self):
         log.info("LoadBalancer constructor entered")
+        self.virtual_ip = IPAddr("10.0.0.100")
 
         self.connections = set()
         core.openflow.addListeners(self)
@@ -44,6 +45,16 @@ class LoadBalancer(object):
 
         self.ip_mapping = {}
         log.info("LoadBalancer initialized completely")
+
+
+    def _handle_ConnectionUp(self, event):
+        log.info(f"Switch {dpid_to_str(event.dpid)} has connected.")
+        self.connections.add(event.connection)
+        
+        # Install a flow that drops all packets by default
+        msg = of.ofp_flow_mod()
+        msg.priority = 0
+        event.connection.send(msg)
 
 
     def _handle_PacketIn(self, event):
@@ -163,15 +174,18 @@ class LoadBalancer(object):
     def map_ip_to_mac(self, ip: str) -> Mapping:
         if ip in self.mac_mapping:
             return self.mac_mapping[ip]
-
-        if self.to_h5:
-            self.ip_mapping[ip] = "10.0.0.5"
-            self.to_h5 = False
-        else:
-            self.ip_mapping[ip] = "10.0.0.6"
-            self.to_h5 = True
-
-        return self.mac_mapping[self.ip_mapping[ip]]
+            
+        if ip == str(self.virtual_ip):
+            if self.to_h5:
+                self.ip_mapping[ip] = "10.0.0.5"
+                self.to_h5 = False
+            else:
+                self.ip_mapping[ip] = "10.0.0.6"
+                self.to_h5 = True
+            return self.mac_mapping[self.ip_mapping[ip]]
+        
+        log.warning(f"Attempted to map unknown IP: {ip}")
+        return None
 
 def launch():
     log.info("Launching LoadBalancer...")
