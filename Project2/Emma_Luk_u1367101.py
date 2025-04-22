@@ -15,18 +15,36 @@ class Mapping:
         self.port = port
         self.mac = mac
 
+# class LoadBalancer(object):
+#     def __init__(self):
+#         core.openflow.addListeners(self)
+#         log.info("LoadBalancer initialized, waiting for connections...")
+
+#         self.to_h5 = True
+#         self.mac_mapping = {
+#             "10.0.0.5": Mapping(5, EthAddr("00:00:00:00:00:05")),
+#             "10.0.0.6": Mapping(6, EthAddr("00:00:00:00:00:06")),
+#         }
+
+#         self.ip_mapping = {}
 class LoadBalancer(object):
     def __init__(self):
+        log.info("LoadBalancer constructor entered")
+
+        self.connections = set()
         core.openflow.addListeners(self)
-        log.info("LoadBalancer initialized, waiting for connections...")
+        log.info("OpenFlow listener added")
 
         self.to_h5 = True
         self.mac_mapping = {
             "10.0.0.5": Mapping(5, EthAddr("00:00:00:00:00:05")),
             "10.0.0.6": Mapping(6, EthAddr("00:00:00:00:00:06")),
         }
+        log.info("mac_mapping initialized")
 
         self.ip_mapping = {}
+        log.info("LoadBalancer initialized completely")
+
 
     def _handle_PacketIn(self, event):
         packet = event.parsed
@@ -157,4 +175,7 @@ class LoadBalancer(object):
 
 def launch():
     log.info("Launching LoadBalancer...")
-    core.registerNew(LoadBalancer)
+    try:
+        core.registerNew(LoadBalancer)
+    except Exception as e:
+        log.error(f"Failed to launch LoadBalancer: {e}")
