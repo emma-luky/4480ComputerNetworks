@@ -127,6 +127,10 @@ class LoadBalancer(object):
                     log.warning(f"No port mapping found for {server_real_ip}")
                     return
 
+                # handle arp requests coming from servers
+                # instead of handling ip forward packet to flow tables
+                # send to noremal message port to of.OFPP_TABLE
+
                 # install flow rules for client -> server traffic
                 event.connection.send(
                     self.client_to_server_flow_entry(inport, arp_packet.protodst, IPAddr(server_real_ip), outport)
@@ -137,9 +141,16 @@ class LoadBalancer(object):
                     self.server_to_client_flow_entry(outport, IPAddr(server_real_ip), arp_packet.protosrc, inport)
                 )
                 log.info(f"Flow installed for ARP from {arp_packet.protosrc} to {arp_packet.protodst}")
-
             elif arp_type == "REQUEST":
-                log.debug(f"ARP request from non-acceptable host on port {inport}, ignored")
+                # If the ARP request comes from a server (not from a client)
+                log.debug(f"ARP request from server or unknown port {inport}, sending to OFPP_TABLE")
+                
+                # Re-inject packet back into the flow table (normal pipeline handling)
+                msg = of.ofp_packet_out()
+                msg.data = event.ofp
+                msg.in_port = inport
+                msg.actions.append(of.ofp_action_output(port=of.OFPP_TABLE))  # Let switch handle it
+                event.connection.send(msg)
 
     def handle_ipv4_packet(self, inport, event, ip_packet):
         """
