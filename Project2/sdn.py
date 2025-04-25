@@ -1,8 +1,14 @@
 from pox.core import core
-from pox.lib.packet import ethernet, ipv4, arp
+import pox.openflow.libopenflow_01 as of
+
+from pox.lib.util import dpid_to_str
+from pox.lib.packet.arp import arp
+from pox.lib.packet.ethernet import ethernet
 from pox.lib.addresses import IPAddr, EthAddr
 
 log = core.getLogger()
+IPV4 = 0x0800  # Ethernet type for IPv4
+ARP_TYPE = 0x0806  # Ethernet type for ARP
 
 class Mapping:
     """
@@ -16,7 +22,7 @@ class Mapping:
 class LoadBalancer(object):
     def __init__(self):
         log.info("LoadBalancer constructor entered")
-        self.virtual_ip = IPAddr("10.0.0.100")
+        self.virtual_ip = IPAddr("10.0.0.10")
 
         self.connections = set()
         core.openflow.addListeners(self)
@@ -44,38 +50,105 @@ class LoadBalancer(object):
         self.listenTo(core.openflow)
 
     def _handle_PacketIn(self, event):
+        """
+        Called when a packet is sent to the controller from the switch.
+        Main entry point for packet processing logic.
+        """
         packet = event.parsed
-        in_port = event.port
-        if isinstance(packet.next, ipv4):
-            ip_packet = packet.next
-            if ip_packet.dstip == self.vip:
-                # Redirect traffic to the next server in round-robin fashion
-                client_ip = ip_packet.srcip
-                server_ip = self.servers[self.server_idx]
-                self.server_idx = (self.server_idx + 1) % len(self.servers)
-                self.client_to_server[client_ip] = server_ip
+        inport = event.port
+        if not packet:
+            log.warning("Received empty packet")
+            return
+        
+        if packet.type == packet.ARP_TYPE:
+            log.debug(f"ARP {packet.opcode} from {packet.src} to {packet.dst} on port {inport}")
+            self.handle_arp(inport, event, packet)
+            return
 
-                log.debug(f"Redirecting traffic from {client_ip} to server {server_ip}")
-                
-                # Create a new IPv4 packet with the correct destination IP
-                new_packet = packet.clone()
-                new_packet.next.dstip = server_ip
+        if packet.type == packet.IPV4_TYPE:
+            self.handle_ipv4_packet(inport, event, packet)
+            return
+        
+    def construct_arp_reply(self, arp_packet, hw_src, hw_dst, protodst, protosrc):
+        """
+        Creates an ARP reply packet based on the provided parameters.
+        Used to respond to ARP requests for the virtual IP.
+        """
+        arp_reply = arp()
+        arp_reply.hwtype = arp_packet.hwtype
+        arp_reply.prototype = arp_packet.prototype
+        arp_reply.hwlen = arp_packet.hwlen
+        arp_reply.protolen = arp_packet.protolen
+        arp_reply.opcode = arp.REPLY
+        arp_reply.hwsrc = hw_dst
+        arp_reply.hwdst = hw_src
+        arp_reply.protosrc = protodst
+        arp_reply.protodst = protosrc
+        return arp_reply
 
-                # Send the packet to the server
-                self._send_packet(event.connection, new_packet, in_port)
+    def handle_arp(self, inport, event, arp_packet):
+        """
+        Handles ARP packets, particularly ARP requests for the virtual IP.
+        Creates ARP replies and installs flow rules for the connection.
+        """
+        # arp_type = arp_opcode_to_text.get(, str(arp_packet.opcode))
+        from_valid_host = 1 <= inport <= 4  # Verify this is from a client (h1-h4)
 
-            elif ip_packet.srcip in self.client_to_server:
-                # Reverse mapping for return traffic
-                server_ip = ip_packet.srcip
-                client_ip = ip_packet.dstip
-                log.debug(f"Returning traffic from server {server_ip} to client {client_ip}")
+        # if arp_packet.prototype == arp.PROTO_TYPE_IP and arp_packet.hwtype == arp.HW_TYPE_ETHERNET:
 
-                # Create a new packet with the correct destination IP (client)
-                new_packet = packet.clone()
-                new_packet.next.dstip = client_ip
+        ## client to VIP
+        if arp_packet.opcode == arp.REQUEST and from_valid_host:
+            hw_dst = self.map_ip_to_mac(str(arp_packet.protodst)).mac
 
-                # Send the packet back to the client
-                self._send_packet(event.connection, new_packet, in_port)
+            arp_reply = self.construct_arp_reply(
+                arp_packet,
+                hw_src=arp_packet.hwsrc,
+                hw_dst=hw_dst,
+                protodst=arp_packet.protodst,
+                protosrc=arp_packet.protosrc
+            )
+
+            ether = ethernet(type=ARP_TYPE, src=event.connection.eth_addr, dst=arp_packet.hwsrc)
+            ether.payload = arp_reply
+
+            msg = of.ofp_packet_out()
+            msg.data = ether.pack()
+            msg.actions.append(of.ofp_action_output(port=of.OFPP_TABLE))
+            msg.in_port = inport
+            event.connection.send(msg)
+
+            server_real_ip = self.ip_mapping.get(str(arp_packet.protodst))
+            if not server_real_ip:
+                log.warning(f"IP {arp_packet.protodst} not found in ip_mapping")
+                return
+            else:
+                outport = self.mac_mapping.get(server_real_ip, Mapping(None)).port
+            if outport is None:
+                log.warning(f"No port mapping found for {server_real_ip}")
+                return
+
+            # install flow rules for client -> server traffic
+            event.connection.send(
+                self.client_to_server_flow_entry(inport, IPAddr(arp_packet.protodst), IPAddr(server_real_ip), outport)
+            )
+
+            # install flow rules for server -> client traffic
+            event.connection.send(
+                self.server_to_client_flow_entry(outport, IPAddr(server_real_ip), IPAddr(arp_packet.protosrc), inport)
+            )
+            log.info(f"Flow installed for ARP from {arp_packet.protosrc} to {arp_packet.protodst}")
+
+        ## server to client
+        elif arp_packet.opcode == arp.REQUEST:
+            # If the ARP request comes from a server (not from a client)
+            log.debug(f"ARP request from server, sending to OFPP_TABLE")
+
+            msg = of.ofp_packet_out()
+            msg.data = event.ofp
+            msg.in_port = inport
+            msg.actions.append(of.ofp_action_output(port=of.OFPP_TABLE))
+            event.connection.send(msg)
+
 
     def _send_packet(self, connection, packet, in_port):
         # Send the modified packet out to the correct port

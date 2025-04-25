@@ -30,7 +30,7 @@ class LoadBalancer(object):
     """
     def __init__(self):
         log.info("LoadBalancer constructor entered")
-        self.virtual_ip = IPAddr("10.0.0.100")
+        self.virtual_ip = IPAddr("10.0.0.10")
         self.connections = set()
         core.openflow.addListeners(self)
         log.info("OpenFlow listener added")
@@ -40,8 +40,8 @@ class LoadBalancer(object):
 
         # maps server IP addresses to their port and MAC information
         self.mac_mapping = {
-            "10.0.0.5": Mapping(5, EthAddr("00:00:00:00:00:05")),  # Server h5
-            "10.0.0.6": Mapping(6, EthAddr("00:00:00:00:00:06")),  # Server h6
+            IPAddr("10.0.0.5"): Mapping(5, EthAddr("00:00:00:00:00:05")),  # Server h5
+            IPAddr("10.0.0.6"): Mapping(6, EthAddr("00:00:00:00:00:06")),  # Server h6
         }
         log.info("mac_mapping initialized")
 
@@ -72,15 +72,15 @@ class LoadBalancer(object):
             log.warning("Received empty packet")
             return
 
-        arp_packet = packet.find('arp')
-        if arp_packet:
-            log.debug(f"ARP {arp_packet.opcode} from {packet.src} to {packet.dst} on port {inport}")
-            self.handle_arp(inport, event, arp_packet)
+        # arp_packet = packet.find('arp')
+        # if arp_packet:
+        if packet.type == packet.ARP_TYPE:
+            log.debug(f"ARP {packet.opcode} from {packet.src} to {packet.dst} on port {inport}")
+            self.handle_arp(inport, event, packet)
             return
 
-        ip_packet = packet.find('ipv4')
-        if ip_packet:
-            self.handle_ipv4_packet(inport, event, ip_packet)
+        if packet.type == packet.IPV4_TYPE:
+            self.handle_ipv4_packet(inport, event, packet)
             return
 
     def handle_arp(self, inport, event, arp_packet):
@@ -88,62 +88,63 @@ class LoadBalancer(object):
         Handles ARP packets, particularly ARP requests for the virtual IP.
         Creates ARP replies and installs flow rules for the connection.
         """
-        arp_opcode_to_text = {
-            arp.REQUEST: "REQUEST",
-            arp.REPLY: "REPLY"
-        }
-        arp_type = arp_opcode_to_text.get(arp_packet.opcode, str(arp_packet.opcode))
+        # arp_type = arp_opcode_to_text.get(, str(arp_packet.opcode))
         from_valid_host = 1 <= inport <= 4  # Verify this is from a client (h1-h4)
 
-        if arp_packet.prototype == arp.PROTO_TYPE_IP and arp_packet.hwtype == arp.HW_TYPE_ETHERNET:
-            if arp_type == "REQUEST" and from_valid_host:
-                hw_dst = self.map_ip_to_mac(str(arp_packet.protodst)).mac
+        # if arp_packet.prototype == arp.PROTO_TYPE_IP and arp_packet.hwtype == arp.HW_TYPE_ETHERNET:
 
-                arp_reply = self.construct_arp_reply(
-                    arp_packet,
-                    hw_src=arp_packet.hwsrc,
-                    hw_dst=hw_dst,
-                    protodst=arp_packet.protodst,
-                    protosrc=arp_packet.protosrc
-                )
+        ## client to VIP
+        if arp_packet.opcode == arp.REQUEST and from_valid_host:
+            hw_dst = self.map_ip_to_mac(str(arp_packet.protodst)).mac
 
-                ether = ethernet(type=ARP_TYPE, src=event.connection.eth_addr, dst=arp_packet.hwsrc)
-                ether.payload = arp_reply
+            arp_reply = self.construct_arp_reply(
+                arp_packet,
+                nw_src=arp_packet.hwsrc,
+                nw_dst=hw_dst,
+                protodst=arp_packet.protodst,
+                protosrc=arp_packet.protosrc
+            )
 
-                msg = of.ofp_packet_out()
-                msg.data = ether.pack()
-                msg.actions.append(of.ofp_action_output(port=of.OFPP_TABLE))
-                msg.in_port = inport
-                event.connection.send(msg)
+            ether = ethernet(type=ARP_TYPE, src=event.connection.eth_addr, dst=arp_packet.hwsrc)
+            ether.payload = arp_reply
 
-                server_real_ip = self.ip_mapping.get(str(arp_packet.protodst))
-                if not server_real_ip:
-                    log.warning(f"IP {arp_packet.protodst} not found in ip_mapping")
-                    return
+            msg = of.ofp_packet_out()
+            msg.data = ether.pack()
+            msg.actions.append(of.ofp_action_output(port=of.OFPP_TABLE))
+            msg.in_port = inport
+            event.connection.send(msg)
+
+            server_real_ip = self.ip_mapping.get(str(arp_packet.protodst))
+            if not server_real_ip:
+                log.warning(f"IP {arp_packet.protodst} not found in ip_mapping")
+                return
+            else:
                 outport = self.mac_mapping.get(server_real_ip, Mapping(None)).port
-                if outport is None:
-                    log.warning(f"No port mapping found for {server_real_ip}")
-                    return
+            if outport is None:
+                log.warning(f"No port mapping found for {server_real_ip}")
+                return
 
-                # install flow rules for client -> server traffic
-                event.connection.send(
-                    self.client_to_server_flow_entry(inport, IPAddr(arp_packet.protodst), IPAddr(server_real_ip), outport)
-                )
+            # install flow rules for client -> server traffic
+            event.connection.send(
+                self.client_to_server_flow_entry(inport, IPAddr(arp_packet.protodst), IPAddr(server_real_ip), outport)
+            )
+            # install flow rules for server -> client traffic
+            event.connection.send(
+                # self.server_to_client_flow_entry(outport, IPAddr(server_real_ip), IPAddr(arp_packet.protosrc), inport)
+                self.server_to_client_flow_entry(outport, IPAddr(server_real_ip), self.virtual_ip, IPAddr(arp_packet.protosrc), inport)
+            )
+            log.info(f"Flow installed for ARP from {arp_packet.protosrc} to {arp_packet.protodst}")
 
-                # install flow rules for server -> client traffic
-                event.connection.send(
-                    self.server_to_client_flow_entry(outport, IPAddr(server_real_ip), IPAddr(arp_packet.protosrc), inport)
-                )
-                log.info(f"Flow installed for ARP from {arp_packet.protosrc} to {arp_packet.protodst}")
-            elif arp_type == "REQUEST":
-                # If the ARP request comes from a server (not from a client)
-                log.debug(f"ARP request from server, sending to OFPP_TABLE")
+        ## server to client
+        elif arp_packet.opcode == arp.REQUEST:
+            # If the ARP request comes from a server (not from a client)
+            log.debug(f"ARP request from server, sending to OFPP_TABLE")
 
-                msg = of.ofp_packet_out()
-                msg.data = event.ofp
-                msg.in_port = inport
-                msg.actions.append(of.ofp_action_output(port=of.OFPP_TABLE))
-                event.connection.send(msg)
+            msg = of.ofp_packet_out()
+            msg.data = event.ofp
+            msg.in_port = inport
+            msg.actions.append(of.ofp_action_output(port=of.OFPP_TABLE))
+            event.connection.send(msg)
 
     def handle_ipv4_packet(self, inport, event, ip_packet):
         """
@@ -164,7 +165,7 @@ class LoadBalancer(object):
         msg.in_port = inport
         event.connection.send(msg)
 
-    def construct_arp_reply(self, arp_packet, hw_src, hw_dst, protodst, protosrc):
+    def construct_arp_reply(self, arp_packet, nw_src, nw_dst, protodst, protosrc):
         """
         Creates an ARP reply packet based on the provided parameters.
         Used to respond to ARP requests for the virtual IP.
@@ -175,8 +176,8 @@ class LoadBalancer(object):
         arp_reply.hwlen = arp_packet.hwlen
         arp_reply.protolen = arp_packet.protolen
         arp_reply.opcode = arp.REPLY
-        arp_reply.hwsrc = hw_dst
-        arp_reply.hwdst = hw_src
+        arp_reply.hwsrc = nw_dst
+        arp_reply.hwdst = nw_src
         arp_reply.protosrc = protodst
         arp_reply.protodst = protosrc
         return arp_reply
@@ -193,12 +194,17 @@ class LoadBalancer(object):
         fm.match = of.ofp_match()
         fm.match.in_port = inport
         fm.match.dl_type = IPV4
-        fm.match.nw_dst = nw_dst
+        fm.match.nw_dst = self.virtual_ip
         fm.actions.append(of.ofp_action_nw_addr.set_dst(nw_dst_addr))
         fm.actions.append(of.ofp_action_output(port=outport))
+        fm.actions.append(of.ofp_action_dl_addr.set_dst(self.mac_mapping[nw_dst_addr].mac))
+        
+    #     fm.actions.append(of.ofp_action_dl_addr.set_dst(server_mac))
+    # fm.actions.append(of.ofp_action_nw_addr.set_dst(server_ip))
+    # fm.actions.append(of.ofp_action_output(port=server_port))
         return fm
 
-    def server_to_client_flow_entry(self, inport, nw_src, nw_src_addr, outport):
+    def server_to_client_flow_entry(self, inport, nw_src, nw_src_addr, clientIP, outport):
         """
         Creates a flow rule that handles traffic from server back to client.
         Rewrites the source IP address back to the virtual IP.
@@ -211,6 +217,7 @@ class LoadBalancer(object):
         fm.match.in_port = inport
         fm.match.dl_type = IPV4
         fm.match.nw_src = nw_src
+        fm.match.nw_dst = clientIP
         fm.actions.append(of.ofp_action_nw_addr.set_src(nw_src_addr))
         fm.actions.append(of.ofp_action_output(port=outport))
         return fm
