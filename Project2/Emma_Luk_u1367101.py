@@ -124,15 +124,22 @@ class LoadBalancer(object):
             msg.in_port = inport
             event.connection.send(msg)
 
-            server_real_ip = self.ip_mapping.get(IPAddr(arp_packet.protodst))
-            if not server_real_ip:
-                log.warning(f"IP {arp_packet.protodst} not found in ip_mapping")
-                return
+            # Determine if this is for virtual IP or real client/server IP
+            if IPAddr(arp_packet.protodst) == self.virtual_ip:
+                server_real_ip = self.ip_mapping.get(self.virtual_ip)
+                if not server_real_ip:
+                    log.warning(f"Virtual IP {self.virtual_ip} not yet mapped to a server")
+                    return
             else:
-                outport = self.mac_mapping.get(server_real_ip, Mapping(None)).port
-            if outport is None:
+                server_real_ip = IPAddr(arp_packet.protodst)
+
+            mapping = self.mac_mapping.get(server_real_ip)
+            if mapping is None:
                 log.warning(f"No port mapping found for {server_real_ip}")
                 return
+
+            outport = mapping.port
+
 
             # install flow rules for client -> server traffic
             event.connection.send(
