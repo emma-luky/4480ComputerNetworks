@@ -97,7 +97,11 @@ class LoadBalancer(object):
 
         ## client to VIP
         if arp_packet.opcode == arp.REQUEST and from_valid_host:
-            hw_dst = self.map_ip_to_mac(str(arp_packet.protodst)).mac
+            mapped_result = self.map_ip_to_mac(str(arp_packet.protodst))
+            if mapped_result is None:
+                log.warning(f"No MAC mapping found for IP {arp_packet.protodst}")
+                return
+            hw_dst = mapped_result.mac
 
             arp_reply = self.construct_arp_reply(
                 arp_packet,
