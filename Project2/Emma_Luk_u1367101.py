@@ -32,7 +32,6 @@ class LoadBalancer(object):
         log.info("LoadBalancer constructor entered")
         self.virtual_ip = IPAddr("10.0.0.10")
         self.connections = set()
-        core.openflow.addListeners(self)
         log.info("OpenFlow listener added")
 
         # flag to toggle between h5 and h6 in round-robin fashion
@@ -47,6 +46,7 @@ class LoadBalancer(object):
 
         # store mappings from virtual IPs to real server IPs
         self.ip_mapping = {}
+        core.openflow.addListeners(self)
         log.info("LoadBalancer initialized completely")
 
     def _handle_ConnectionUp(self, event):
@@ -55,11 +55,11 @@ class LoadBalancer(object):
         Sets up default flow rules.
         """
         log.info(f"Switch {dpid_to_str(event.dpid)} has connected.")
-        self.connections.add(event.connection)
+        # self.connections.add(event.connection)
 
         # install a flow that drops all packets by default
-        msg = of.ofp_flow_mod(priority=0)
-        event.connection.send(msg)
+        # msg = of.ofp_flow_mod(priority=0)
+        # event.connection.send(msg)
 
     def _handle_PacketIn(self, event):
         """
@@ -99,8 +99,8 @@ class LoadBalancer(object):
 
             arp_reply = self.construct_arp_reply(
                 arp_packet,
-                nw_src=arp_packet.hwsrc,
-                nw_dst=hw_dst,
+                hw_src=arp_packet.hwsrc,
+                hw_dst=hw_dst,
                 protodst=arp_packet.protodst,
                 protosrc=arp_packet.protosrc
             )
@@ -165,7 +165,7 @@ class LoadBalancer(object):
         msg.in_port = inport
         event.connection.send(msg)
 
-    def construct_arp_reply(self, arp_packet, nw_src, nw_dst, protodst, protosrc):
+    def construct_arp_reply(self, arp_packet, hw_src, hw_dst, protodst, protosrc):
         """
         Creates an ARP reply packet based on the provided parameters.
         Used to respond to ARP requests for the virtual IP.
@@ -176,10 +176,18 @@ class LoadBalancer(object):
         arp_reply.hwlen = arp_packet.hwlen
         arp_reply.protolen = arp_packet.protolen
         arp_reply.opcode = arp.REPLY
-        arp_reply.hwsrc = nw_dst
-        arp_reply.hwdst = nw_src
+        arp_reply.hwsrc = hw_dst
+        arp_reply.hwdst = hw_src
         arp_reply.protosrc = protodst
         arp_reply.protodst = protosrc
+
+        ether = ethernet()
+        ether.type = ethernet.ARP_TYPE
+        ether.dst = arp_packet.src
+        ether.src = hw_dst
+        ether.payload = arp_reply
+        msg = of.ofp_packet_out()
+        msg.data = ether.pack()
         return arp_reply
 
     def client_to_server_flow_entry(self, inport, nw_dst, nw_dst_addr, outport):
@@ -198,7 +206,7 @@ class LoadBalancer(object):
         fm.actions.append(of.ofp_action_nw_addr.set_dst(nw_dst_addr))
         fm.actions.append(of.ofp_action_output(port=outport))
         fm.actions.append(of.ofp_action_dl_addr.set_dst(self.mac_mapping[nw_dst_addr].mac))
-        
+
     #     fm.actions.append(of.ofp_action_dl_addr.set_dst(server_mac))
     # fm.actions.append(of.ofp_action_nw_addr.set_dst(server_ip))
     # fm.actions.append(of.ofp_action_output(port=server_port))
