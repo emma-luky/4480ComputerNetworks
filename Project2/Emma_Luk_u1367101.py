@@ -150,6 +150,7 @@ class LoadBalancer(object):
         Handles IPv4 packets, particularly for packets destined to the virtual IP.
         Forwards packets to the appropriate server based on the mapping.
         """
+        self.map_ip_to_mac(dst_ip)
         dst_ip = str(ip_packet.dstip)
         msg = of.ofp_packet_out()
         msg.data = event.ofp
