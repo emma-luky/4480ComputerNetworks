@@ -112,7 +112,7 @@ class LoadBalancer(object):
                 hw_src = hw_dst,
                 hw_dst = arp_packet.hwsrc,
                 protodst=arp_packet.protosrc,
-                protosrc=arp_packet.protosdst
+                protosrc=arp_packet.protodst
             )
 
             ether = ethernet(type=ARP_TYPE, src=event.connection.eth_addr, dst=arp_packet.hwsrc)
