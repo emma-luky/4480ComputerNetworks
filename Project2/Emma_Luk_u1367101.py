@@ -109,10 +109,10 @@ class LoadBalancer(object):
 
             arp_reply = self.construct_arp_reply(
                 arp_packet,
-                hw_src=arp_packet.hwsrc,
-                hw_dst=hw_dst,
-                protodst=arp_packet.protodst,
-                protosrc=arp_packet.protosrc
+                hw_src = hw_dst,
+                hw_dst = arp_packet.hwsrc,
+                protodst=arp_packet.protosrc,
+                protosrc=arp_packet.protosdst
             )
 
             ether = ethernet(type=ARP_TYPE, src=event.connection.eth_addr, dst=arp_packet.hwsrc)
@@ -161,7 +161,7 @@ class LoadBalancer(object):
         Handles IPv4 packets, particularly for packets destined to the virtual IP.
         Forwards packets to the appropriate server based on the mapping.
         """
-        dst_ip = str(ip_packet.dstip)
+        dst_ip = IPAddr(ip_packet.dstip)
         self.map_ip_to_mac(dst_ip)
         
         msg = of.ofp_packet_out()
@@ -218,10 +218,6 @@ class LoadBalancer(object):
         fm.actions.append(of.ofp_action_nw_addr.set_dst(nw_dst_addr))
         fm.actions.append(of.ofp_action_output(port=outport))
         fm.actions.append(of.ofp_action_dl_addr.set_dst(self.mac_mapping[nw_dst_addr].mac))
-
-    #     fm.actions.append(of.ofp_action_dl_addr.set_dst(server_mac))
-    # fm.actions.append(of.ofp_action_nw_addr.set_dst(server_ip))
-    # fm.actions.append(of.ofp_action_output(port=server_port))
         return fm
 
     def server_to_client_flow_entry(self, inport, nw_src, nw_src_addr, clientIP, outport):
@@ -241,26 +237,6 @@ class LoadBalancer(object):
         fm.actions.append(of.ofp_action_nw_addr.set_src(nw_src_addr))
         fm.actions.append(of.ofp_action_output(port=outport))
         return fm
-
-    # def map_ip_to_mac(self, ip: str) -> Mapping:
-    #     """
-    #     Maps IP addresses to the corresponding server's MAC address.
-    #     Implements round-robin load balancing between h5 and h6.
-    #     """
-    #     if ip in self.mac_mapping:
-    #         return self.mac_mapping[ip]
-
-    #     if ip == str(self.virtual_ip):
-    #         if self.to_h5:
-    #             self.ip_mapping[ip] = "10.0.0.5"
-    #             self.to_h5 = False
-    #         else:
-    #             self.ip_mapping[ip] = "10.0.0.6"
-    #             self.to_h5 = True
-    #         return self.mac_mapping[self.ip_mapping[ip]]
-
-    #     log.warning(f"Attempted to map unknown IP: {ip}")
-    #     return None
 
     def map_ip_to_mac(self, ip: str) -> Mapping:
         """
