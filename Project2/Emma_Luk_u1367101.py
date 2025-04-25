@@ -38,7 +38,15 @@ class LoadBalancer(object):
         self.to_h5 = True  
 
         # maps server IP addresses to their port and MAC information
+        # self.mac_mapping = {
+        #     IPAddr("10.0.0.5"): Mapping(5, EthAddr("00:00:00:00:00:05")),  # Server h5
+        #     IPAddr("10.0.0.6"): Mapping(6, EthAddr("00:00:00:00:00:06")),  # Server h6
+        # }
         self.mac_mapping = {
+            IPAddr("10.0.0.1"): Mapping(1, EthAddr("00:00:00:00:00:01")),  # Client h1
+            IPAddr("10.0.0.2"): Mapping(2, EthAddr("00:00:00:00:00:02")),  # Client h2
+            IPAddr("10.0.0.3"): Mapping(3, EthAddr("00:00:00:00:00:03")),  # Client h3
+            IPAddr("10.0.0.4"): Mapping(4, EthAddr("00:00:00:00:00:04")),  # Client h4
             IPAddr("10.0.0.5"): Mapping(5, EthAddr("00:00:00:00:00:05")),  # Server h5
             IPAddr("10.0.0.6"): Mapping(6, EthAddr("00:00:00:00:00:06")),  # Server h6
         }
@@ -88,19 +96,15 @@ class LoadBalancer(object):
     def handle_arp_packet(self, inport, event, arp_packet):
         """
         Handles ARP packets, particularly ARP requests for the virtual IP.
-        Creates ARP replies and installs flow rules for the connection.
         """
-        # arp_type = arp_opcode_to_text.get(, str(arp_packet.opcode))
         from_valid_host = 1 <= inport <= 4  # Verify this is from a client (h1-h4)
-
-        # if arp_packet.prototype == arp.PROTO_TYPE_IP and arp_packet.hwtype == arp.HW_TYPE_ETHERNET:
-
-        ## client to VIP
+        
         if arp_packet.opcode == arp.REQUEST and from_valid_host:
             mapped_result = self.map_ip_to_mac(str(arp_packet.protodst))
             if mapped_result is None:
                 log.warning(f"No MAC mapping found for IP {arp_packet.protodst}")
                 return
+                
             hw_dst = mapped_result.mac
 
             arp_reply = self.construct_arp_reply(
@@ -238,23 +242,55 @@ class LoadBalancer(object):
         fm.actions.append(of.ofp_action_output(port=outport))
         return fm
 
+    # def map_ip_to_mac(self, ip: str) -> Mapping:
+    #     """
+    #     Maps IP addresses to the corresponding server's MAC address.
+    #     Implements round-robin load balancing between h5 and h6.
+    #     """
+    #     if ip in self.mac_mapping:
+    #         return self.mac_mapping[ip]
+
+    #     if ip == str(self.virtual_ip):
+    #         if self.to_h5:
+    #             self.ip_mapping[ip] = "10.0.0.5"
+    #             self.to_h5 = False
+    #         else:
+    #             self.ip_mapping[ip] = "10.0.0.6"
+    #             self.to_h5 = True
+    #         return self.mac_mapping[self.ip_mapping[ip]]
+
+    #     log.warning(f"Attempted to map unknown IP: {ip}")
+    #     return None
+
     def map_ip_to_mac(self, ip: str) -> Mapping:
         """
-        Maps IP addresses to the corresponding server's MAC address.
+        Maps IP addresses to the corresponding MAC address.
         Implements round-robin load balancing between h5 and h6.
         """
-        if ip in self.mac_mapping:
-            return self.mac_mapping[ip]
-
-        if ip == str(self.virtual_ip):
+        ip_addr = IPAddr(ip) if isinstance(ip, str) else ip
+        
+        # If it's a known server IP
+        if ip_addr in self.mac_mapping:
+            return self.mac_mapping[ip_addr]
+        
+        # If it's the virtual IP, implement round-robin
+        if str(ip_addr) == str(self.virtual_ip):
             if self.to_h5:
-                self.ip_mapping[ip] = "10.0.0.5"
+                self.ip_mapping[str(ip_addr)] = IPAddr("10.0.0.5")
                 self.to_h5 = False
             else:
-                self.ip_mapping[ip] = "10.0.0.6"
+                self.ip_mapping[str(ip_addr)] = IPAddr("10.0.0.6")
                 self.to_h5 = True
-            return self.mac_mapping[self.ip_mapping[ip]]
-
+            return self.mac_mapping[self.ip_mapping[str(ip_addr)]]
+        
+        # Handle client IPs (hosts h1-h4)
+        if ip_addr.inNetwork("10.0.0.0/24") and ip_addr.toUnsigned() >= IPAddr("10.0.0.1").toUnsigned() and ip_addr.toUnsigned() <= IPAddr("10.0.0.4").toUnsigned():
+            # Generate MAC address for clients based on their IP
+            # This assumes MAC addresses follow pattern 00:00:00:00:00:0X where X is the last octet
+            host_num = ip_addr.toUnsigned() - IPAddr("10.0.0.0").toUnsigned()
+            mac = EthAddr(f"00:00:00:00:00:{host_num:02x}")
+            return Mapping(host_num, mac)
+        
         log.warning(f"Attempted to map unknown IP: {ip}")
         return None
 
