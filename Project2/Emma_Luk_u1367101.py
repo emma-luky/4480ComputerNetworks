@@ -68,19 +68,22 @@ class LoadBalancer(object):
         """
         packet = event.parsed
         inport = event.port
-        if not packet:
-            log.warning("Received empty packet")
+
+        if not packet.parsed:
+            log.warning("Ignoring incomplete packet")
             return
 
-        # arp_packet = packet.find('arp')
-        # if arp_packet:
-        if packet.type == packet.ARP_TYPE:
-            log.debug(f"ARP {packet.opcode} from {packet.src} to {packet.dst} on port {inport}")
-            self.handle_arp(inport, event, packet.payload)
+        if packet.type == ethernet.IPV6_TYPE:
+            # Drop IPv6 packets silently
             return
-        else:
+
+        if packet.type == ethernet.ARP_TYPE:
+            self.handle_arp_packet(inport, event, packet.payload)
+        elif packet.type == ethernet.IP_TYPE:
             self.handle_ipv4_packet(inport, event, packet.payload)
-            return
+        else:
+            log.warning(f"Unknown Ethernet type: {packet.type}")
+
 
     def handle_arp(self, inport, event, arp_packet):
         """
