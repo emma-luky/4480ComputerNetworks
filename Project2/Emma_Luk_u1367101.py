@@ -85,7 +85,7 @@ class LoadBalancer(object):
             log.warning(f"Unknown Ethernet type: {packet.type}")
 
 
-    def handle_arp(self, inport, event, arp_packet):
+    def handle_arp_packet(self, inport, event, arp_packet):
         """
         Handles ARP packets, particularly ARP requests for the virtual IP.
         Creates ARP replies and installs flow rules for the connection.
