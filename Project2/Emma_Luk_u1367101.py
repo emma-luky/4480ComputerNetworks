@@ -195,7 +195,7 @@ class LoadBalancer(object):
 
         ether = ethernet()
         ether.type = ethernet.ARP_TYPE
-        ether.dst = arp_packet.src
+        # ether.dst = arp_packet.src
         ether.src = hw_dst
         ether.payload = arp_reply
         msg = of.ofp_packet_out()
