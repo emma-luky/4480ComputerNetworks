@@ -78,8 +78,7 @@ class LoadBalancer(object):
             log.debug(f"ARP {packet.opcode} from {packet.src} to {packet.dst} on port {inport}")
             self.handle_arp(inport, event, packet)
             return
-
-        if packet.type == packet.IPV4_TYPE:
+        else:
             self.handle_ipv4_packet(inport, event, packet)
             return
 
