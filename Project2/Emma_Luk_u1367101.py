@@ -124,7 +124,7 @@ class LoadBalancer(object):
             msg.in_port = inport
             event.connection.send(msg)
 
-            server_real_ip = self.ip_mapping.get(str(arp_packet.protodst))
+            server_real_ip = self.ip_mapping.get(IPAddr(arp_packet.protodst))
             if not server_real_ip:
                 log.warning(f"IP {arp_packet.protodst} not found in ip_mapping")
                 return
